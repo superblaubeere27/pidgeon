@@ -1,0 +1,46 @@
+[package]
+name = "pidgeon"
+version = "0.1.1"
+edition = "2021"
+description = "A robust, thread-safe PID controller library written in Rust"
+authors = ["Dario Alessandro"]
+repository = "https://github.com/security-union/pidgeon"
+license = "MIT OR Apache-2.0"
+keywords = ["pid", "control", "controller", "robotics", "automation"]
+categories = ["science", "embedded", "algorithms", "science::robotics"]
+readme = "../../README.md"
+
+[dependencies]
+# Optional dependencies for debugging
+iggy = { version = "0.6.203", optional = true }
+tokio = { version = "1.35.0", features = ["full"], optional = true }
+serde = { version = "1.0.193", features = ["derive"], optional = true }
+serde_json = { version = "1.0.108", optional = true }
+rand = { version = "0.8.5", optional = true }
+
+[dev-dependencies]
+# Dependencies only used in tests and examples
+criterion = "0.5"
+
+[[example]]
+name = "temperature_control"
+path = "examples/temperature_control.rs"
+
+[[example]]
+name = "multithreaded_control"  
+path = "examples/multithreaded_control.rs"
+
+[[example]]
+name = "debug_temperature_control"
+path = "examples/debug_temperature_control.rs"
+required-features = ["debugging"]
+
+[[bench]]
+name = "pid_benchmark"
+harness = false
+required-features = ["benchmarks"]
+
+[features]
+default = []
+benchmarks = []
+debugging = ["iggy", "tokio", "serde", "serde_json", "rand"]
