@@ -65,7 +65,7 @@ fn main() {
     // Initial conditions
     let mut altitude = 0.0; // Starting on the ground
     let mut velocity: f64 = 0.0; // Initial vertical velocity
-    let mut thrust = 0.0; // Initial thrust
+    let mut thrust; // Initial thrust
     let mut commanded_thrust = 0.0; // Commanded thrust from PID
 
     // Data history for plotting - using ring buffers
@@ -121,7 +121,9 @@ fn main() {
         time_history[time_step] = time;
 
         // Use the compute method with the current altitude
-        let control_signal = controller.compute(altitude, DT);
+        let control_signal = controller
+            .compute(altitude, DT)
+            .expect("Failed to compute control signal");
 
         // Apply motor response delay (motors can't change thrust instantly)
         commanded_thrust =
@@ -260,7 +262,9 @@ fn main() {
     }
 
     // Print controller statistics
-    let stats = controller.get_statistics();
+    let stats = controller
+        .get_statistics()
+        .expect("Failed to get controller statistics");
     println!(
         "\nSimulation complete! Ran for {:.1} seconds of simulated time.",
         SIMULATION_DURATION_SECONDS
@@ -269,8 +273,9 @@ fn main() {
     println!("----------------------------------");
     println!("Average altitude error: {:.2} meters", stats.average_error);
     println!(
-        "Maximum deviation from setpoint: {:.2} meters",
-        stats.max_overshoot
+        "Maximum overshoot: {:.2} meters ({}% of setpoint)",
+        stats.max_overshoot,
+        (stats.max_overshoot / SETPOINT_ALTITUDE * 100.0).round()
     );
     println!("Settling time: {:.1} seconds", stats.settling_time);
     println!("Rise time: {:.1} seconds", stats.rise_time);
@@ -417,12 +422,15 @@ fn plot_multi_charts(
                         chart_x_offset + y_axis_offset + (x_percent * plot_width as f64) as usize;
 
                     // Draw vertical marker
-                    for y in chart_y_offset + 1..chart_y_offset + chart_height - 5 {
-                        if y < total_height
-                            && x < total_width
-                            && (buffer[y][x] == ' ' || buffer[y][x] == '·')
+                    for (y, row) in buffer
+                        .iter_mut()
+                        .enumerate()
+                        .take(chart_y_offset + chart_height - 5)
+                        .skip(chart_y_offset + 1)
+                    {
+                        if y < total_height && x < total_width && (row[x] == ' ' || row[x] == '·')
                         {
-                            buffer[y][x] = '!';
+                            row[x] = '!';
                         }
                     }
                 }
