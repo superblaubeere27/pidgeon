@@ -66,6 +66,18 @@ pub struct ControllerDebugData {
     pub d_term: f64,
 }
 
+pub trait ControllerDebuggerTrait {
+    fn log_pid_state(
+        &mut self,
+        error: f64,
+        p_term: f64,
+        i_term: f64,
+        d_term: f64,
+        output: f64,
+        dt: f64,
+    );
+}
+
 /// Component for debugging PID controllers
 #[cfg(feature = "debugging")]
 pub struct ControllerDebugger {
@@ -73,6 +85,21 @@ pub struct ControllerDebugger {
     tx: Sender<ControllerDebugData>,
     last_sample: Instant,
     sample_interval: Option<Duration>,
+}
+
+impl ControllerDebuggerTrait for ControllerDebugger {
+    /// Log the current state of the PID controller
+    fn log_pid_state(
+        &mut self,
+        error: f64,
+        p_term: f64,
+        i_term: f64,
+        d_term: f64,
+        output: f64,
+        _dt: f64,
+    ) {
+        self.send_debug_data(error, output, p_term, i_term, d_term);
+    }
 }
 
 #[cfg(feature = "debugging")]
@@ -220,18 +247,6 @@ impl ControllerDebugger {
         }
     }
 
-    /// Log the current state of the PID controller
-    pub fn log_pid_state(
-        &mut self,
-        error: f64,
-        p_term: f64,
-        i_term: f64,
-        d_term: f64,
-        output: f64,
-        _dt: f64,
-    ) {
-        self.send_debug_data(error, output, p_term, i_term, d_term);
-    }
 
     /// Send debug data
     pub fn send_debug_data(

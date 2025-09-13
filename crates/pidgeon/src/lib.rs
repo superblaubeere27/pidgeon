@@ -21,6 +21,7 @@ mod debug;
 
 #[cfg(feature = "debugging")]
 pub use debug::{ControllerDebugger, DebugConfig};
+use crate::debug::ControllerDebuggerTrait;
 
 /// Configuration for a PID controller.
 ///
@@ -30,6 +31,7 @@ pub struct ControllerConfig {
     kp: f64,           // Proportional gain
     ki: f64,           // Integral gain
     kd: f64,           // Derivative gain
+    lpf_alpha: f64,    // Alpha for the low-pass filter for the derivative.
     min_output: f64,   // Minimum output value
     max_output: f64,   // Maximum output value
     anti_windup: bool, // Whether to use anti-windup
@@ -63,6 +65,7 @@ impl Default for ControllerConfig {
             kp: 1.0,
             ki: 0.0,
             kd: 0.0,
+            lpf_alpha: 1.0,
             min_output: -f64::INFINITY,
             max_output: f64::INFINITY,
             anti_windup: true,
@@ -156,6 +159,19 @@ impl ControllerConfig {
         self
     }
 
+    /// Sets
+    /// # Panics
+    ///
+    /// Panics if the value is NaN or infinity
+    pub fn with_lpf_alpha(mut self, alpha: f64) -> Self {
+        if !alpha.is_finite() {
+            panic!("Kd must be a finite number, got: {}", alpha);
+        }
+        self.lpf_alpha = alpha;
+
+        self
+    }
+
     /// Set the output limits (min, max).
     pub fn with_output_limits(mut self, min: f64, max: f64) -> Self {
         self.min_output = min;
@@ -243,6 +259,7 @@ pub struct PidController {
     config: ControllerConfig, // Controller configuration
     integral: f64,            // Accumulated integral term
     prev_error: f64,          // Previous error value (for derivative)
+    prev_derivative: f64,
     first_run: bool,          // Flag for first run
 
     // Statistics tracking
@@ -257,7 +274,7 @@ pub struct PidController {
 
     // Debugging
     #[cfg(feature = "debugging")]
-    debugger: Option<ControllerDebugger>,
+    debugger: Option<Box<dyn ControllerDebuggerTrait>>,
 }
 
 impl PidController {
@@ -267,6 +284,7 @@ impl PidController {
             config,
             integral: 0.0,
             prev_error: 0.0,
+            prev_derivative: 0.0,
             first_run: true,
             start_time: Instant::now(),
             error_sum: 0.0,
@@ -318,16 +336,23 @@ impl PidController {
         // Calculate P term
         let p_term = self.config.kp * working_error;
 
+        let prev_integral = self.integral;
+
         // Calculate I term
         self.integral += working_error * dt;
+
         let i_term = self.config.ki * self.integral;
 
         // Calculate D term (using filtered derivative to reduce noise)
-        let d_term = if dt > 0.0 {
+        let raw_d_term = if dt > 0.0 {
             self.config.kd * ((working_error - self.prev_error) / dt)
         } else {
             0.0
         };
+
+        let d_term = self.config.lpf_alpha * raw_d_term + (1.0 - self.config.lpf_alpha) * self.prev_derivative;
+
+        self.prev_derivative = d_term;
 
         // Store error for next iteration
         self.prev_error = working_error;
@@ -341,14 +366,14 @@ impl PidController {
 
             // Anti-windup: prevent integral from growing when saturated
             if self.config.anti_windup {
-                self.integral -= working_error * dt;
+                self.integral = self.integral.min(prev_integral);
             }
         } else if output < self.config.min_output {
             output = self.config.min_output;
 
             // Anti-windup: prevent integral from growing when saturated
             if self.config.anti_windup {
-                self.integral -= working_error * dt;
+                self.integral = self.integral.max(prev_integral);
             }
         }
 
@@ -556,7 +581,12 @@ impl PidController {
 
     #[cfg(feature = "debugging")]
     pub fn with_debugging(mut self, debug_config: DebugConfig) -> Self {
-        self.debugger = Some(ControllerDebugger::new(debug_config));
+        self.debugger = Some(Box::new(ControllerDebugger::new(debug_config)));
+        self
+    }
+    #[cfg(feature = "debugging")]
+    pub fn with_custom_debugging(mut self, debugger: Box<dyn ControllerDebuggerTrait>) -> Self {
+        self.debugger = Some(debugger);
         self
     }
 }
@@ -764,6 +794,7 @@ impl ThreadSafePidController {
             config: lock.config.clone(),
             integral: lock.integral,
             prev_error: lock.prev_error,
+            prev_derivative: lock.prev_derivative,
             first_run: lock.first_run,
             start_time: lock.start_time,
             error_sum: lock.error_sum,
@@ -773,7 +804,7 @@ impl ThreadSafePidController {
             rise_time: lock.rise_time,
             settle_time: lock.settle_time,
             settled_threshold: lock.settled_threshold,
-            debugger: Some(ControllerDebugger::new(debug_config_clone)),
+            debugger: Some(Box::new(ControllerDebugger::new(debug_config_clone))),
         };
 
         // Create a new ThreadSafePidController with the modified controller
